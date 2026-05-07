@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const INTERNAL_ACCESS_CODE = "REPLACE_WITH_ACCESS_CODE";
+  const INTERNAL_ACCESS_CODE = "Wz2026";
   const BACKEND_CHAT_ENDPOINT = "const BACKEND_CHAT_ENDPOINT = "https://microcure-sales-worker.zliubc928.workers.dev/";";
   const ACCESS_SESSION_KEY = "microcure_sales_access_verified";
   const ACCESS_CODE_SESSION_KEY = "microcure_sales_access_code";
