@@ -90,11 +90,6 @@ code {
   background: #f0fdfa;
 }
 
-.proxy-info-root {
-  min-height: 112px;
-  overflow: hidden;
-}
-
 #message-input {
   min-height: 40px;
 }

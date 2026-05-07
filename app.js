@@ -25,7 +25,6 @@
   const sessionLabel = document.getElementById("session-label");
   const timePill = document.getElementById("time-pill");
   const chatBox = document.getElementById("chat-box");
-  const backendStatus = document.getElementById("backend-status");
   const input = document.getElementById("message-input");
   const sendBtn = document.getElementById("send-btn");
   const uploadBtn = document.getElementById("upload-btn");
@@ -104,10 +103,6 @@
     timePill.textContent = hour + ":" + minute;
   }
 
-  function updateBackendStatus() {
-    backendStatus.textContent = isBackendConfigured() ? "已配置" : "待配置";
-  }
-
   function showAccessScreen() {
     chatApp.classList.add("hidden");
     chatApp.classList.remove("flex");
@@ -126,7 +121,6 @@
     chatApp.classList.add("flex");
     updateSessionLabel();
     updateTimePill();
-    updateBackendStatus();
     scrollToBottom();
   }
 
@@ -282,7 +276,12 @@
     scrollToBottom();
   }
 
-  function appendBotBubble(text, isError) {
+  function getBotBubbleClass(isError) {
+    return "rounded-2xl rounded-tl-sm border px-4 py-2.5 text-[14px] leading-relaxed shadow-sm whitespace-pre-wrap " +
+      (isError ? "border-red-100 bg-red-50 text-red-700" : "border-gray-100 bg-white text-gray-700");
+  }
+
+  function createBotBubble(text, isError) {
     const row = document.createElement("div");
     row.className = "msg-fade-in mt-4 flex items-start gap-2";
 
@@ -298,8 +297,7 @@
     name.textContent = "微至君销售助手";
 
     const bubble = document.createElement("div");
-    bubble.className = "rounded-2xl rounded-tl-sm border px-4 py-2.5 text-[14px] leading-relaxed shadow-sm " +
-      (isError ? "border-red-100 bg-red-50 text-red-700" : "border-gray-100 bg-white text-gray-700");
+    bubble.className = getBotBubbleClass(isError);
     bubble.textContent = text;
 
     stack.appendChild(name);
@@ -307,6 +305,18 @@
     row.appendChild(avatar);
     row.appendChild(stack);
     chatBox.appendChild(row);
+    scrollToBottom();
+
+    return bubble;
+  }
+
+  function appendBotBubble(text, isError) {
+    createBotBubble(text, isError);
+  }
+
+  function updateBotBubble(bubble, text, isError) {
+    bubble.className = getBotBubbleClass(isError);
+    bubble.textContent = text;
     scrollToBottom();
   }
 
@@ -341,7 +351,7 @@
 
   function postToBackend(message) {
     if (!isBackendConfigured()) {
-      return Promise.reject(new Error("请先在 app.js 中配置 Cloudflare Worker 地址。"));
+      return Promise.reject(new Error("后端地址未配置。"));
     }
 
     const controller = new AbortController();
@@ -352,7 +362,8 @@
     const payload = {
       access_code: getAccessCode(),
       session_id: getUserSessionId(),
-      message: message
+      message: message,
+      stream: false
       // Future image support can add safe metadata here, for example:
       // image_metadata: { name: "...", type: "image/png", size: 12345 }
       // Do not send image bytes until the backend file upload API is implemented.
@@ -397,6 +408,145 @@
       });
   }
 
+  function streamFromBackend(message, botBubble) {
+    if (!isBackendConfigured()) {
+      return Promise.reject(new Error("后端地址未配置。"));
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(function () {
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+    const payload = {
+      access_code: getAccessCode(),
+      session_id: getUserSessionId(),
+      message: message,
+      stream: true
+    };
+    let receivedContent = false;
+    let accumulatedText = "";
+
+    return fetch(BACKEND_CHAT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          return response.json().catch(function () {
+            return {};
+          }).then(function (data) {
+            throw new Error(normalizeErrorMessage(response.status, data));
+          });
+        }
+
+        const contentType = response.headers.get("Content-Type") || "";
+
+        if (contentType.indexOf("application/json") !== -1) {
+          return response.json().catch(function () {
+            return {};
+          }).then(function (data) {
+            if (!data || typeof data.reply !== "string") {
+              throw new Error("后端返回格式异常，请检查 Worker 配置。");
+            }
+
+            updateBotBubble(botBubble, data.reply, false);
+            return data.reply;
+          });
+        }
+
+        if (!response.body || !response.body.getReader) {
+          return postToBackend(message).then(function (reply) {
+            updateBotBubble(botBubble, reply, false);
+            return reply;
+          });
+        }
+
+        return readStreamingResponse(response, botBubble, function () {
+          receivedContent = true;
+        }, function (text) {
+          accumulatedText = text;
+        }).catch(function (error) {
+          if (!receivedContent) {
+            return postToBackend(message).then(function (reply) {
+              updateBotBubble(botBubble, reply, false);
+              return reply;
+            });
+          }
+
+          if (accumulatedText) {
+            updateBotBubble(botBubble, accumulatedText + "\n\n连接中断，请重试。", true);
+          }
+
+          throw error;
+        });
+      })
+      .catch(function (error) {
+        if (error && error.name === "AbortError") {
+          throw new Error("请求超时，请稍后重试。");
+        }
+
+        if (error instanceof TypeError) {
+          if (!receivedContent) {
+            return postToBackend(message).then(function (reply) {
+              updateBotBubble(botBubble, reply, false);
+              return reply;
+            });
+          }
+
+          throw new Error("后端服务暂不可用，请稍后重试。");
+        }
+
+        throw error;
+      })
+      .finally(function () {
+        window.clearTimeout(timeoutId);
+      });
+  }
+
+  function readStreamingResponse(response, botBubble, markReceived, syncAccumulated) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+
+    function readNextChunk() {
+      return reader.read().then(function (result) {
+        if (result.done) {
+          const tail = decoder.decode();
+
+          if (tail) {
+            text += tail;
+            markReceived();
+            syncAccumulated(text);
+            updateBotBubble(botBubble, text, false);
+          }
+
+          if (!text.trim()) {
+            throw new Error("后端返回内容为空，请稍后重试。");
+          }
+
+          return text;
+        }
+
+        const chunk = decoder.decode(result.value, { stream: true });
+
+        if (chunk) {
+          text += chunk;
+          markReceived();
+          syncAccumulated(text);
+          updateBotBubble(botBubble, text, false);
+        }
+
+        return readNextChunk();
+      });
+    }
+
+    return readNextChunk();
+  }
+
   function sendCurrentInput() {
     const text = input.value.trim();
 
@@ -418,16 +568,16 @@
     updateSendButton();
     setStatus("正在发送...", "");
     appendUserBubble(text);
+    const botBubble = createBotBubble("正在生成...", false);
     input.value = "";
     resizeInput();
 
-    postToBackend(text)
-      .then(function (reply) {
-        appendBotBubble(reply, false);
+    streamFromBackend(text, botBubble)
+      .then(function () {
         setStatus("", "");
       })
       .catch(function (error) {
-        appendBotBubble(error.message || "后端服务暂不可用，请稍后重试。", true);
+        updateBotBubble(botBubble, error.message || "后端服务暂不可用，请稍后重试。", true);
         setStatus(error.message || "后端服务暂不可用，请稍后重试。", "error");
       })
       .finally(function () {

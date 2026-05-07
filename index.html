@@ -120,26 +120,10 @@
           </div>
         </section>
 
-        <section id="proxy-panel" class="msg-fade-in rounded-2xl border border-dashed border-medical-100 bg-medical-50/50 p-3">
-          <div class="mb-2 flex items-center justify-between gap-2">
-            <h2 class="text-[13px] font-medium text-medical-700">后端代理</h2>
-            <span id="backend-status" class="text-[11px] text-gray-400">待配置</span>
-          </div>
-          <div id="backend-proxy-info" class="proxy-info-root rounded-xl border border-medical-100 bg-white">
-            <div class="flex min-h-28 flex-col justify-center px-3 py-4 text-[13px] leading-relaxed text-gray-500">
-              <span>请在 <code>app.js</code> 中配置 <code>BACKEND_CHAT_ENDPOINT</code> 为 Cloudflare Worker 地址。</span>
-              <span class="mt-1">Coze token 只保存在 Worker 环境变量里，不能写入前端。</span>
-            </div>
-          </div>
-        </section>
       </main>
 
       <footer class="shrink-0 border-t border-gray-100 bg-white">
         <div class="px-3 pt-2">
-          <p class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-900">
-            上传截图前，请先遮挡客户姓名、手机号、微信号、邮箱、医院名称、合同、底价、付款信息等敏感内容。请勿上传客户隐私、底价、合同、未公开认证文件等敏感信息。
-          </p>
-
           <div id="image-preview" class="mt-2 hidden items-center gap-2 rounded-2xl border border-medical-100 bg-medical-50 p-2">
             <img id="preview-image" class="h-14 w-14 shrink-0 rounded-xl border border-white object-cover" alt="待发送截图预览">
             <div class="min-w-0 flex-1">
